@@ -13,6 +13,7 @@ use crate::core::{
 use crate::graphics::Compositor;
 use crate::program::{Program, State};
 
+use winit::dpi::Position;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::monitor::MonitorHandle;
 
@@ -46,7 +47,7 @@ where
     pub fn insert(
         &mut self,
         id: Id,
-        window: Arc<winit::window::Window>,
+        window: Arc<Box<dyn winit::window::Window>>,
         application: &P,
         compositor: &mut C,
         exit_on_close_request: bool,
@@ -158,7 +159,7 @@ where
     C: Compositor<Renderer = P::Renderer>,
     P::Theme: theme::Base,
 {
-    pub raw: Arc<winit::window::Window>,
+    pub raw: Arc<Box<dyn winit::window::Window>>,
     pub state: State<P>,
     pub viewport_version: u64,
     pub exit_on_close_request: bool,
@@ -188,7 +189,7 @@ where
     }
 
     pub fn size(&self) -> Size {
-        let size = self.raw.inner_size().to_logical(self.raw.scale_factor());
+        let size = self.raw.surface_size().to_logical(self.raw.scale_factor());
 
         Size::new(size.width, size.height)
     }
@@ -262,8 +263,8 @@ where
 
         if self.ime_state != Some((position, purpose)) {
             self.raw.set_ime_cursor_area(
-                LogicalPosition::new(position.x, position.y),
-                LogicalSize::new(10, 10), // TODO?
+                Position::new(LogicalPosition::new(position.x, position.y)),
+                winit::dpi::Size::Logical(LogicalSize::new(10.0, 10.0)), // TODO?
             );
             self.raw.set_ime_purpose(conversion::ime_purpose(purpose));
 

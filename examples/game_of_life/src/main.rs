@@ -9,7 +9,9 @@ use iced::time::{self, milliseconds};
 use iced::widget::{
     button, checkbox, column, container, pick_list, row, slider, text,
 };
-use iced::{Center, Element, Fill, Function, Subscription, Task, Theme};
+use iced::{
+    Center, Element, Fill, Function, Subscription, Task, Theme, window,
+};
 
 pub fn main() -> iced::Result {
     tracing_subscriber::fmt::init();
@@ -109,8 +111,7 @@ impl GameOfLife {
 
     fn subscription(&self) -> Subscription<Message> {
         if self.is_playing {
-            time::every(milliseconds(1000 / self.speed as u64))
-                .map(|_| Message::Tick)
+            window::frames().map(|_| Message::Tick)
         } else {
             Subscription::none()
         }

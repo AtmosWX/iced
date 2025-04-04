@@ -191,13 +191,14 @@ web-sys = "0.3.69"
 web-time = "1.1"
 wgpu = "24.0"
 window_clipboard = "0.4.1"
-winit = { git = "https://github.com/iced-rs/winit.git", rev = "11414b6aa45699f038114e61b4ddf5102b2d3b4b" }
+winit = { git = "https://github.com/AtmosWX/winit", branch = "macos-vsync" }
+objc2 = "0.6.0"
+objc2-core-foundation = "0.3.0"
 
 [workspace.lints.rust]
 rust_2018_idioms = { level = "deny", priority = -1 }
 missing_debug_implementations = "deny"
 missing_docs = "deny"
-unsafe_code = "deny"
 unused_results = "deny"
 
 [workspace.lints.clippy]
