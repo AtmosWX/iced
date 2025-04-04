@@ -1,4 +1,4 @@
-use iced_futures::futures::SinkExt as _;
+use iced_futures::futures::SinkExt;
 
 use crate::futures::futures::{
     Future, Sink, StreamExt,
@@ -7,29 +7,29 @@ use crate::futures::futures::{
     task::{Context, Poll},
 };
 use crate::runtime::Action;
-use objc2_core_foundation::{
-    CFIndex, CFRetained, CFRunLoopAddSource, CFRunLoopGetMain, CFRunLoopSource,
-    CFRunLoopSourceContext, CFRunLoopSourceCreate, CFRunLoopSourceSignal,
-    CFRunLoopWakeUp, kCFRunLoopCommonModes,
+use std::{
+    pin::Pin,
+    sync::{Arc, Mutex},
 };
-use std::{ffi::c_void, pin::Pin, ptr};
 
 /// An event loop proxy with backpressure that implements `Sink`.
 #[derive(Debug)]
 pub struct Proxy<T: 'static> {
     raw: winit::event_loop::EventLoopProxy,
-    proxy: MacProxy<Action<T>>,
     sender: mpsc::Sender<Action<T>>,
     notifier: mpsc::Sender<usize>,
+    action_sender: mpsc::UnboundedSender<Action<T>>,
+    action_queue: Arc<Mutex<Vec<Action<T>>>>,
 }
 
 impl<T: 'static> Clone for Proxy<T> {
     fn clone(&self) -> Self {
         Self {
             raw: self.raw.clone(),
-            proxy: self.proxy.clone(),
             sender: self.sender.clone(),
             notifier: self.notifier.clone(),
+            action_sender: self.action_sender.clone(),
+            action_queue: self.action_queue.clone(),
         }
     }
 }
@@ -40,18 +40,15 @@ impl<T: 'static> Proxy<T> {
     /// Creates a new [`Proxy`] from an `EventLoopProxy`.
     pub fn new(
         raw: winit::event_loop::EventLoopProxy,
-    ) -> (
-        Self,
-        impl Future<Output = ()>,
-        mpsc::UnboundedReceiver<Action<T>>,
-    ) {
+    ) -> (Self, impl Future<Output = ()>, impl Future<Output = ()>) {
         let (notifier, mut processed) = mpsc::channel(Self::MAX_SIZE);
         let (sender, mut receiver) = mpsc::channel(Self::MAX_SIZE);
-        let (proxy_sender, proxy_receiver) = mpsc::unbounded();
-        let mac_proxy = MacProxy::new(proxy_sender.clone());
-        let proxy = raw.clone();
+        let (mut action_sender, mut action_receiver) = mpsc::unbounded();
+        let action_queue = Arc::new(Mutex::new(Vec::new()));
 
-        let mut mac_proxy_clone = mac_proxy.clone();
+        let proxy = raw.clone();
+        let action_sender_clone = action_sender.clone();
+        let action_queue_clone = action_queue.clone();
 
         let worker = async move {
             let mut count = 0;
@@ -60,8 +57,8 @@ impl<T: 'static> Proxy<T> {
                 if count < Self::MAX_SIZE {
                     select! {
                         message = receiver.select_next_some() => {
+                            action_sender.send(message).await.expect("Failed to send message");
                             proxy.wake_up();
-                            mac_proxy_clone.send_event(message);
                             count += 1;
 
                         }
@@ -81,15 +78,24 @@ impl<T: 'static> Proxy<T> {
             }
         };
 
+        let action_worker = async move {
+            loop {
+                let action = action_receiver.select_next_some().await;
+                let mut queue = action_queue.lock().unwrap();
+                queue.push(action);
+            }
+        };
+
         (
             Self {
                 raw,
-                proxy: mac_proxy,
                 sender,
                 notifier,
+                action_sender: action_sender_clone,
+                action_queue: action_queue_clone,
             },
             worker,
-            proxy_receiver,
+            action_worker,
         )
     }
 
@@ -97,29 +103,43 @@ impl<T: 'static> Proxy<T> {
     ///
     /// Note: This skips the backpressure mechanism with an unbounded
     /// channel. Use sparingly!
-    pub async fn send(&mut self, value: T)
+    pub fn send(&mut self, value: T)
     where
         T: std::fmt::Debug,
     {
-        self.send_action(Action::Output(value)).await;
+        self.send_action(Action::Output(value));
     }
 
     /// Sends an action to the event loop.
     ///
     /// Note: This skips the backpressure mechanism with an unbounded
     /// channel. Use sparingly!
-    pub async fn send_action(&mut self, action: Action<T>)
+    pub fn send_action(&mut self, action: Action<T>)
     where
         T: std::fmt::Debug,
     {
+        self.action_sender
+            .start_send(action)
+            .expect("Failed to send action");
         self.raw.wake_up();
-        self.proxy.send_event(action);
     }
 
     /// Frees an amount of slots for additional messages to be queued in
     /// this [`Proxy`].
     pub fn free_slots(&mut self, amount: usize) {
         let _ = self.notifier.start_send(amount);
+    }
+
+    /// Drains the action queue and returns all actions.
+    pub fn drain(&mut self) -> Vec<Action<T>> {
+        let mut queue = self.action_queue.lock().unwrap();
+        let mut actions = Vec::new();
+
+        while let Some(action) = queue.pop() {
+            actions.push(action);
+        }
+
+        actions
     }
 }
 
@@ -159,62 +179,5 @@ impl<T: 'static> Sink<Action<T>> for Proxy<T> {
     ) -> Poll<Result<(), Self::Error>> {
         self.sender.disconnect();
         Poll::Ready(Ok(()))
-    }
-}
-
-#[derive(Debug)]
-pub struct MacProxy<T> {
-    sender: mpsc::UnboundedSender<T>,
-    source: CFRetained<CFRunLoopSource>,
-}
-
-unsafe impl<T: Send> Send for MacProxy<T> {}
-unsafe impl<T: Send> Sync for MacProxy<T> {}
-
-impl<T> Clone for MacProxy<T> {
-    fn clone(&self) -> Self {
-        MacProxy::new(self.sender.clone())
-    }
-}
-
-impl<T> MacProxy<T> {
-    fn new(sender: mpsc::UnboundedSender<T>) -> Self {
-        unsafe {
-            // just wake up the eventloop
-            extern "C-unwind" fn event_loop_proxy_handler(_: *mut c_void) {}
-
-            // adding a Source to the main CFRunLoop lets us wake it up and
-            // process user events through the normal OS EventLoop mechanisms.
-            let rl = CFRunLoopGetMain().expect("Failed to get main run loop");
-            let mut context = CFRunLoopSourceContext {
-                version: 0,
-                info: ptr::null_mut(),
-                retain: None,
-                release: None,
-                copyDescription: None,
-                equal: None,
-                hash: None,
-                schedule: None,
-                cancel: None,
-                perform: Some(event_loop_proxy_handler),
-            };
-            let source =
-                CFRunLoopSourceCreate(None, CFIndex::MAX - 1, &mut context)
-                    .expect("Failed to create CFRunLoopSource");
-            CFRunLoopAddSource(&rl, Some(&source), kCFRunLoopCommonModes);
-            CFRunLoopWakeUp(&rl);
-
-            Self { sender, source }
-        }
-    }
-
-    pub fn send_event(&mut self, event: T) {
-        self.sender.start_send(event).expect("Event loop closed");
-        unsafe {
-            // let the main thread know there's a new event
-            CFRunLoopSourceSignal(&self.source);
-            let rl = CFRunLoopGetMain().expect("Failed to get main run loop");
-            CFRunLoopWakeUp(&rl);
-        }
     }
 }

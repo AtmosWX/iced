@@ -158,12 +158,13 @@ where
     debug.startup_started();
 
     let event_loop = EventLoop::new().expect("Create event loop");
-    let (proxy, worker, proxy_receiver) = Proxy::new(event_loop.create_proxy());
+    let (proxy, worker, action_worker) = Proxy::new(event_loop.create_proxy());
 
     let mut runtime = {
         let executor =
             P::Executor::new().map_err(Error::ExecutorCreationFailed)?;
         executor.spawn(worker);
+        executor.spawn(action_worker);
 
         Runtime::new(executor, proxy.clone())
     };
@@ -212,7 +213,7 @@ where
         id: Option<String>,
         sender: mpsc::UnboundedSender<Event<Action<Message>>>,
         receiver: mpsc::UnboundedReceiver<Control>,
-        proxy_receiver: mpsc::UnboundedReceiver<Action<Message>>,
+        proxy: Proxy<Message>,
         error: Option<Error>,
 
         #[cfg(target_arch = "wasm32")]
@@ -225,7 +226,7 @@ where
         id: settings.id,
         sender: event_sender,
         receiver: control_receiver,
-        proxy_receiver,
+        proxy,
         error: None,
 
         #[cfg(target_arch = "wasm32")]
@@ -290,14 +291,9 @@ where
             &mut self,
             event_loop: &dyn winit::event_loop::ActiveEventLoop,
         ) {
-            loop {
-                match self.proxy_receiver.try_next() {
-                    Ok(Some(action)) => {
-                        self.process_event(event_loop, Event::Action(action))
-                    }
-
-                    _ => break,
-                };
+            let actions = self.proxy.drain();
+            for action in actions {
+                self.process_event(event_loop, Event::Action(action));
             }
         }
 
@@ -606,13 +602,9 @@ async fn run_instance<P, C>(
                             {
                                 let (sender, _receiver) = oneshot::channel();
 
-                                proxy
-                                    .send_action(Action::Window(
-                                        runtime::window::Action::GetLatest(
-                                            sender,
-                                        ),
-                                    ))
-                                    .await;
+                                proxy.send_action(Action::Window(
+                                    runtime::window::Action::GetLatest(sender),
+                                ));
                             }
                         }
                     };
