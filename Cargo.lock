@@ -1333,7 +1333,7 @@ dependencies = [
 [[package]]
 name = "dpi"
 version = "0.1.1"
-source = "git+https://github.com/AtmosWX/winit?branch=macos-vsync#2e3a683becc89c44f23868a775b4b8443b5c5f05"
+source = "git+https://github.com/AtmosWX/winit?branch=macos-vsync#f17a317bbc7e9f7e4be4a1fbc107258a123ff15f"
 
 [[package]]
 name = "drm"
@@ -7223,7 +7223,7 @@ checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 [[package]]
 name = "winit"
 version = "0.30.9"
-source = "git+https://github.com/AtmosWX/winit?branch=macos-vsync#2e3a683becc89c44f23868a775b4b8443b5c5f05"
+source = "git+https://github.com/AtmosWX/winit?branch=macos-vsync#f17a317bbc7e9f7e4be4a1fbc107258a123ff15f"
 dependencies = [
  "ahash",
  "android-activity",

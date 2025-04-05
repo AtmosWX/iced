@@ -1104,7 +1104,6 @@ fn run_action<P, C>(
 
     match action {
         Action::Output(message) => {
-            println!("Output: {message:?}");
             messages.push(message);
         }
         Action::Clipboard(action) => match action {
