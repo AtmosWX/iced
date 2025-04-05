@@ -58,9 +58,7 @@ impl<T: 'static> Proxy<T> {
                     select! {
                         message = receiver.select_next_some() => {
                             action_sender.send(message).await.expect("Failed to send message");
-                            proxy.wake_up();
                             count += 1;
-
                         }
                         amount = processed.select_next_some() => {
                             count = count.saturating_sub(amount);
@@ -83,6 +81,7 @@ impl<T: 'static> Proxy<T> {
                 let action = action_receiver.select_next_some().await;
                 let mut queue = action_queue.lock().unwrap();
                 queue.push(action);
+                proxy.wake_up();
             }
         };
 
@@ -121,7 +120,6 @@ impl<T: 'static> Proxy<T> {
         self.action_sender
             .start_send(action)
             .expect("Failed to send action");
-        self.raw.wake_up();
     }
 
     /// Frees an amount of slots for additional messages to be queued in
