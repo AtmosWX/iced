@@ -19,14 +19,14 @@ enum State {
         //
         // Note that the field ordering is load-bearing.
         #[allow(dead_code)]
-        window: Arc<Window>,
+        window: Arc<Box<dyn Window>>,
     },
     Unavailable,
 }
 
 impl Clipboard {
     /// Creates a new [`Clipboard`] for the given window.
-    pub fn connect(window: Arc<Window>) -> Clipboard {
+    pub fn connect(window: Arc<Box<dyn Window>>) -> Clipboard {
         // SAFETY: The window handle will stay alive throughout the entire
         // lifetime of the `window_clipboard::Clipboard` because we hold
         // the `Arc<Window>` together with `State`, and enum variant fields

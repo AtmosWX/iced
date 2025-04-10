@@ -51,7 +51,7 @@ where
     pub fn insert(
         &mut self,
         id: Id,
-        window: Arc<winit::window::Window>,
+        window: Arc<Box<dyn winit::window::Window>>,
         program: &program::Instance<P>,
         compositor: &mut C,
         exit_on_close_request: bool,
@@ -163,7 +163,7 @@ where
     C: Compositor<Renderer = P::Renderer>,
     P::Theme: theme::Base,
 {
-    pub raw: Arc<winit::window::Window>,
+    pub raw: Arc<Box<dyn winit::window::Window>>,
     pub state: State<P>,
     pub viewport_version: u64,
     pub exit_on_close_request: bool,
@@ -193,7 +193,7 @@ where
     }
 
     pub fn size(&self) -> Size {
-        let size = self.raw.inner_size().to_logical(self.raw.scale_factor());
+        let size = self.raw.surface_size().to_logical(self.raw.scale_factor());
 
         Size::new(size.width, size.height)
     }
@@ -267,8 +267,8 @@ where
 
         if self.ime_state != Some((position, purpose)) {
             self.raw.set_ime_cursor_area(
-                LogicalPosition::new(position.x, position.y),
-                LogicalSize::new(10, 10), // TODO?
+                LogicalPosition::new(position.x, position.y).into(),
+                LogicalSize::new(10, 10).into(), // TODO?
             );
             self.raw.set_ime_purpose(conversion::ime_purpose(purpose));
 

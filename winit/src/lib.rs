@@ -81,16 +81,15 @@ where
     let boot_span = debug::boot();
 
     let graphics_settings = settings.clone().into();
-    let event_loop = EventLoop::with_user_event()
-        .build()
-        .expect("Create event loop");
+    let event_loop = EventLoop::new().expect("Create event loop");
 
-    let (proxy, worker) = Proxy::new(event_loop.create_proxy());
+    let (proxy, worker, action_worker) = Proxy::new(event_loop.create_proxy());
 
     let mut runtime = {
         let executor =
             P::Executor::new().map_err(Error::ExecutorCreationFailed)?;
         executor.spawn(worker);
+        executor.spawn(action_worker);
 
         Runtime::new(executor, proxy.clone())
     };
@@ -138,6 +137,7 @@ where
         id: Option<String>,
         sender: mpsc::UnboundedSender<Event<Action<Message>>>,
         receiver: mpsc::UnboundedReceiver<Control>,
+        proxy: Proxy<Message>,
         error: Option<Error>,
 
         #[cfg(target_arch = "wasm32")]
@@ -150,6 +150,7 @@ where
         id: settings.id,
         sender: event_sender,
         receiver: control_receiver,
+        proxy,
         error: None,
 
         #[cfg(target_arch = "wasm32")]
@@ -158,45 +159,44 @@ where
 
     boot_span.finish();
 
-    impl<Message, F> winit::application::ApplicationHandler<Action<Message>>
-        for Runner<Message, F>
+    impl<Message, F> winit::application::ApplicationHandler for Runner<Message, F>
     where
         Message: std::fmt::Debug,
         F: Future<Output = ()>,
     {
-        fn resumed(
+        fn can_create_surfaces(
             &mut self,
-            _event_loop: &winit::event_loop::ActiveEventLoop,
+            _event_loop: &dyn winit::event_loop::ActiveEventLoop,
         ) {
         }
 
         fn new_events(
             &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
+            event_loop: &dyn winit::event_loop::ActiveEventLoop,
             cause: winit::event::StartCause,
         ) {
             self.process_event(
                 event_loop,
-                Event::EventLoopAwakened(winit::event::Event::NewEvents(cause)),
+                Event::EventLoopAwakened(EventLoopAwakened::NewEvents(cause)),
             );
         }
 
         fn window_event(
             &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
+            event_loop: &dyn winit::event_loop::ActiveEventLoop,
             window_id: winit::window::WindowId,
             event: winit::event::WindowEvent,
         ) {
             #[cfg(target_os = "windows")]
             let is_move_or_resize = matches!(
                 event,
-                winit::event::WindowEvent::Resized(_)
+                winit::event::WindowEvent::SurfaceResized(_)
                     | winit::event::WindowEvent::Moved(_)
             );
 
             self.process_event(
                 event_loop,
-                Event::EventLoopAwakened(winit::event::Event::WindowEvent {
+                Event::EventLoopAwakened(EventLoopAwakened::WindowEvent {
                     window_id,
                     event,
                 }),
@@ -212,50 +212,35 @@ where
                     self.process_event(
                         event_loop,
                         Event::EventLoopAwakened(
-                            winit::event::Event::AboutToWait,
+                            EventLoopAwakened::AboutToWait,
                         ),
                     );
                 }
             }
         }
 
-        fn user_event(
+        fn proxy_wake_up(
             &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
-            action: Action<Message>,
+            event_loop: &dyn winit::event_loop::ActiveEventLoop,
         ) {
-            self.process_event(
-                event_loop,
-                Event::EventLoopAwakened(winit::event::Event::UserEvent(
-                    action,
-                )),
-            );
-        }
-
-        fn received_url(
-            &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
-            url: String,
-        ) {
-            self.process_event(
-                event_loop,
-                Event::EventLoopAwakened(
-                    winit::event::Event::PlatformSpecific(
-                        winit::event::PlatformSpecific::MacOS(
-                            winit::event::MacOS::ReceivedUrl(url),
-                        ),
-                    ),
-                ),
-            );
+            let actions = self.proxy.drain();
+            for action in actions {
+                self.process_event(
+                    event_loop,
+                    Event::EventLoopAwakened(EventLoopAwakened::UserEvent(
+                        action,
+                    )),
+                );
+            }
         }
 
         fn about_to_wait(
             &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
+            event_loop: &dyn winit::event_loop::ActiveEventLoop,
         ) {
             self.process_event(
                 event_loop,
-                Event::EventLoopAwakened(winit::event::Event::AboutToWait),
+                Event::EventLoopAwakened(EventLoopAwakened::AboutToWait),
             );
         }
     }
@@ -266,7 +251,7 @@ where
     {
         fn process_event(
             &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
+            event_loop: &dyn winit::event_loop::ActiveEventLoop,
             event: Event<Action<Message>>,
         ) {
             if event_loop.exiting() {
@@ -453,12 +438,23 @@ where
 enum Event<Message: 'static> {
     WindowCreated {
         id: window::Id,
-        window: Arc<winit::window::Window>,
+        window: Arc<Box<dyn winit::window::Window>>,
         exit_on_close_request: bool,
         make_visible: bool,
         on_open: oneshot::Sender<window::Id>,
     },
-    EventLoopAwakened(winit::event::Event<Message>),
+    EventLoopAwakened(EventLoopAwakened<Message>),
+}
+
+#[derive(Debug)]
+enum EventLoopAwakened<Message: 'static> {
+    NewEvents(winit::event::StartCause),
+    WindowEvent {
+        window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    },
+    UserEvent(Message),
+    AboutToWait,
 }
 
 #[derive(Debug)]
@@ -634,12 +630,12 @@ async fn run_instance<P>(
             }
             Event::EventLoopAwakened(event) => {
                 match event {
-                    event::Event::NewEvents(event::StartCause::Init) => {
+                    EventLoopAwakened::NewEvents(event::StartCause::Init) => {
                         for (_id, window) in window_manager.iter_mut() {
                             window.raw.request_redraw();
                         }
                     }
-                    event::Event::NewEvents(
+                    EventLoopAwakened::NewEvents(
                         event::StartCause::ResumeTimeReached { .. },
                     ) => {
                         let now = Instant::now();
@@ -664,20 +660,7 @@ async fn run_instance<P>(
                             );
                         }
                     }
-                    event::Event::PlatformSpecific(
-                        event::PlatformSpecific::MacOS(
-                            event::MacOS::ReceivedUrl(url),
-                        ),
-                    ) => {
-                        runtime.broadcast(
-                            subscription::Event::PlatformSpecific(
-                                subscription::PlatformSpecific::MacOS(
-                                    subscription::MacOS::ReceivedUrl(url),
-                                ),
-                            ),
-                        );
-                    }
-                    event::Event::UserEvent(action) => {
+                    EventLoopAwakened::UserEvent(action) => {
                         run_action(
                             action,
                             &program,
@@ -693,7 +676,7 @@ async fn run_instance<P>(
                         );
                         actions += 1;
                     }
-                    event::Event::WindowEvent {
+                    EventLoopAwakened::WindowEvent {
                         window_id: id,
                         event: event::WindowEvent::RedrawRequested,
                         ..
@@ -771,11 +754,11 @@ async fn run_instance<P>(
                         draw_span.finish();
 
                         if new_mouse_interaction != window.mouse_interaction {
-                            window.raw.set_cursor(
+                            window.raw.set_cursor(winit::window::Cursor::Icon(
                                 conversion::mouse_interaction(
                                     new_mouse_interaction,
                                 ),
-                            );
+                            ));
 
                             window.mouse_interaction = new_mouse_interaction;
                         }
@@ -831,7 +814,7 @@ async fn run_instance<P>(
                             },
                         }
                     }
-                    event::Event::WindowEvent {
+                    EventLoopAwakened::WindowEvent {
                         event: window_event,
                         window_id,
                     } => {
@@ -858,7 +841,7 @@ async fn run_instance<P>(
 
                         if matches!(
                             window_event,
-                            winit::event::WindowEvent::Resized(_)
+                            winit::event::WindowEvent::SurfaceResized(_)
                         ) {
                             window.raw.request_redraw();
                         }
@@ -895,7 +878,7 @@ async fn run_instance<P>(
                             }
                         }
                     }
-                    event::Event::AboutToWait => {
+                    EventLoopAwakened::AboutToWait => {
                         if actions > 0 {
                             proxy.free_slots(actions);
                             actions = 0;
@@ -1187,42 +1170,48 @@ fn run_action<P, C>(
             }
             window::Action::Resize(id, size) => {
                 if let Some(window) = window_manager.get_mut(id) {
-                    let _ = window.raw.request_inner_size(
+                    let _ = window.raw.request_surface_size(
                         winit::dpi::LogicalSize {
                             width: size.width,
                             height: size.height,
-                        },
+                        }
+                        .into(),
                     );
                 }
             }
             window::Action::SetMinSize(id, size) => {
                 if let Some(window) = window_manager.get_mut(id) {
-                    window.raw.set_min_inner_size(size.map(|size| {
+                    window.raw.set_min_surface_size(size.map(|size| {
                         winit::dpi::LogicalSize {
                             width: size.width,
                             height: size.height,
                         }
+                        .into()
                     }));
                 }
             }
             window::Action::SetMaxSize(id, size) => {
                 if let Some(window) = window_manager.get_mut(id) {
-                    window.raw.set_max_inner_size(size.map(|size| {
+                    window.raw.set_max_surface_size(size.map(|size| {
                         winit::dpi::LogicalSize {
                             width: size.width,
                             height: size.height,
                         }
+                        .into()
                     }));
                 }
             }
             window::Action::SetResizeIncrements(id, increments) => {
                 if let Some(window) = window_manager.get_mut(id) {
-                    window.raw.set_resize_increments(increments.map(|size| {
-                        winit::dpi::LogicalSize {
-                            width: size.width,
-                            height: size.height,
-                        }
-                    }));
+                    window.raw.set_surface_resize_increments(increments.map(
+                        |size| {
+                            winit::dpi::LogicalSize {
+                                width: size.width,
+                                height: size.height,
+                            }
+                            .into()
+                        },
+                    ));
                 }
             }
             window::Action::SetResizable(id, resizable) => {
@@ -1234,7 +1223,7 @@ fn run_action<P, C>(
                 if let Some(window) = window_manager.get_mut(id) {
                     let size = window
                         .raw
-                        .inner_size()
+                        .surface_size()
                         .to_logical(window.raw.scale_factor());
 
                     let _ = channel.send(Size::new(size.width, size.height));
@@ -1289,7 +1278,8 @@ fn run_action<P, C>(
                         winit::dpi::LogicalPosition {
                             x: position.x,
                             y: position.y,
-                        },
+                        }
+                        .into(),
                     );
                 }
             }
@@ -1356,18 +1346,19 @@ fn run_action<P, C>(
                             winit::dpi::LogicalPosition {
                                 x: point.x,
                                 y: point.y,
-                            },
+                            }
+                            .into(),
                         );
                     }
                 }
             }
             window::Action::GetRawId(id, channel) => {
                 if let Some(window) = window_manager.get_mut(id) {
-                    let _ = channel.send(window.raw.id().into());
+                    let _ = channel.send(window.raw.id().into_raw() as u64);
                 }
             }
             window::Action::RunWithHandle(id, f) => {
-                use window::raw_window_handle::HasWindowHandle;
+                use winit::raw_window_handle::HasWindowHandle;
 
                 if let Some(handle) = window_manager
                     .get_mut(id)
@@ -1501,7 +1492,7 @@ pub fn user_force_quit(
                     ..
                 },
             ..
-        } if c == "q" && _modifiers.super_key() => true,
+        } if c == "q" && _modifiers.meta_key() => true,
         _ => false,
     }
 }
