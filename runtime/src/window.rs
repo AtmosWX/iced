@@ -1,4 +1,6 @@
 //! Build window-based GUI applications.
+use std::sync::Arc;
+
 use crate::core::time::Instant;
 use crate::core::window::{
     Direction, Event, Icon, Id, Level, Mode, Screenshot, Settings,
@@ -28,6 +30,12 @@ pub enum Action {
 
     /// Gets the [`Id`] of the latest window.
     GetLatest(oneshot::Sender<Option<Id>>),
+
+    /// Gets the [`winit::Window`] of the window with the given [`Id`].
+    GetWinitWindow(
+        Id,
+        oneshot::Sender<Option<Arc<Box<dyn winit::window::Window>>>>,
+    ),
 
     /// Move the window with the left mouse button until the button is
     /// released.
@@ -273,6 +281,15 @@ pub fn get_oldest() -> Task<Option<Id>> {
 /// Gets the window [`Id`] of the latest window.
 pub fn get_latest() -> Task<Option<Id>> {
     task::oneshot(|channel| crate::Action::Window(Action::GetLatest(channel)))
+}
+
+/// Gets the [`winit::Window`] of the window with the given [`Id`].
+pub fn get_winit_window(
+    id: Id,
+) -> Task<Option<Arc<Box<dyn winit::window::Window>>>> {
+    task::oneshot(move |channel| {
+        crate::Action::Window(Action::GetWinitWindow(id, channel))
+    })
 }
 
 /// Begins dragging the window while the left mouse button is held.

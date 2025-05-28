@@ -1156,6 +1156,12 @@ fn run_action<P, C>(
 
                 let _ = channel.send(id);
             }
+            window::Action::GetWinitWindow(id, channel) => {
+                let window =
+                    window_manager.get(id).map(|window| window.raw.clone());
+
+                let _ = channel.send(window);
+            }
             window::Action::Drag(id) => {
                 if let Some(window) = window_manager.get_mut(id) {
                     let _ = window.raw.drag_window();
