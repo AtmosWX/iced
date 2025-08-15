@@ -7,6 +7,7 @@ use crate::core;
 use crate::core::widget::operation::{self, Operation};
 use crate::core::window;
 use crate::core::{Element, Length, Pixels, Widget};
+use crate::float::{self, Float};
 use crate::keyed;
 use crate::overlay;
 use crate::pane_grid::{self, PaneGrid};
@@ -24,10 +25,12 @@ use crate::text_input::{self, TextInput};
 use crate::toggler::{self, Toggler};
 use crate::tooltip::{self, Tooltip};
 use crate::vertical_slider::{self, VerticalSlider};
-use crate::{Column, Grid, MouseArea, Pin, Pop, Row, Space, Stack, Themer};
+use crate::{Column, Grid, MouseArea, Pin, Row, Sensor, Space, Stack, Themer};
 
 use std::borrow::Borrow;
 use std::ops::RangeInclusive;
+
+pub use crate::table::table;
 
 /// Creates a [`Column`] with the given children.
 ///
@@ -692,8 +695,9 @@ where
         fn overlay<'b>(
             &'b mut self,
             state: &'b mut core::widget::Tree,
-            layout: core::Layout<'_>,
+            layout: core::Layout<'b>,
             renderer: &Renderer,
+            viewport: &Rectangle,
             translation: core::Vector,
         ) -> Option<core::overlay::Element<'b, Message, Theme, Renderer>>
         {
@@ -701,6 +705,7 @@ where
                 state,
                 layout,
                 renderer,
+                viewport,
                 translation,
             )
         }
@@ -946,8 +951,9 @@ where
         fn overlay<'b>(
             &'b mut self,
             tree: &'b mut core::widget::Tree,
-            layout: core::Layout<'_>,
+            layout: core::Layout<'b>,
             renderer: &Renderer,
+            viewport: &Rectangle,
             translation: core::Vector,
         ) -> Option<core::overlay::Element<'b, Message, Theme, Renderer>>
         {
@@ -959,6 +965,7 @@ where
                         tree,
                         layout,
                         renderer,
+                        viewport,
                         translation,
                     )
                 });
@@ -983,18 +990,20 @@ where
     })
 }
 
-/// Creates a new [`Pop`] widget.
+/// Creates a new [`Sensor`] widget.
 ///
-/// A [`Pop`] widget can generate messages when it pops in and out of view.
+/// A [`Sensor`] widget can generate messages when its contents are shown,
+/// hidden, or resized.
+///
 /// It can even notify you with anticipation at a given distance!
-pub fn pop<'a, Message, Theme, Renderer>(
+pub fn sensor<'a, Message, Theme, Renderer>(
     content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Pop<'a, Message, Theme, Renderer>
+) -> Sensor<'a, (), Message, Theme, Renderer>
 where
     Renderer: core::Renderer,
     Message: Clone,
 {
-    Pop::new(content)
+    Sensor::new(content)
 }
 
 /// Creates a new [`Scrollable`] with the provided content.
@@ -2117,4 +2126,15 @@ where
     Renderer: core::Renderer,
 {
     PaneGrid::new(state, view)
+}
+
+/// Creates a new [`Float`] widget with the given content.
+pub fn float<'a, Message, Theme, Renderer>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> Float<'a, Message, Theme, Renderer>
+where
+    Theme: float::Catalog,
+    Renderer: core::Renderer,
+{
+    Float::new(content)
 }

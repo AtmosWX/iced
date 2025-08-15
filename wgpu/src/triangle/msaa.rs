@@ -167,6 +167,7 @@ impl Pipeline {
             label: Some("iced_wgpu.triangle.render_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &targets.attachment,
+                depth_slice: None,
                 resolve_target: Some(&targets.resolve),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -254,8 +255,7 @@ impl Targets {
 struct Ratio {
     u: f32,
     v: f32,
-    // Padding field to make Ratio 16 byte aligned
-    //
+    // Padding field for 16-byte alignment.
     // See https://docs.rs/wgpu/latest/wgpu/struct.DownlevelFlags.html#associatedconstant.BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
     _padding: [f32; 2],
 }
@@ -341,6 +341,7 @@ impl State {
                 label: Some("iced_wgpu::triangle::msaa render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,

@@ -62,6 +62,7 @@ use window::WindowManager;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
+use std::slice;
 use std::sync::Arc;
 
 /// Runs a [`Program`] with the provided settings.
@@ -76,14 +77,21 @@ where
 {
     use winit::event_loop::EventLoop;
 
-    debug::init(P::name());
-
     let boot_span = debug::boot();
 
     let graphics_settings = settings.clone().into();
     let event_loop = EventLoop::new().expect("Create event loop");
 
     let (proxy, worker, action_worker) = Proxy::new(event_loop.create_proxy());
+
+    #[cfg(feature = "debug")]
+    {
+        let proxy = proxy.clone();
+
+        debug::on_hotpatch(move || {
+            proxy.send_action(Action::Reload);
+        });
+    }
 
     let mut runtime = {
         let executor =
@@ -525,7 +533,7 @@ async fn run_instance<P>(
 
                     let create_compositor = {
                         let window = window.clone();
-                        let mut proxy = proxy.clone();
+                        let proxy = proxy.clone();
                         let default_fonts = default_fonts.clone();
 
                         async move {
@@ -641,11 +649,11 @@ async fn run_instance<P>(
                         let now = Instant::now();
 
                         for (_id, window) in window_manager.iter_mut() {
-                            if let Some(redraw_at) = window.redraw_at {
-                                if redraw_at <= now {
-                                    window.raw.request_redraw();
-                                    window.redraw_at = None;
-                                }
+                            if let Some(redraw_at) = window.redraw_at
+                                && redraw_at <= now
+                            {
+                                window.raw.request_redraw();
+                                window.redraw_at = None;
                             }
                         }
 
@@ -736,14 +744,14 @@ async fn run_instance<P>(
 
                         let draw_span = debug::draw(id);
                         let (ui_state, _) = ui.update(
-                            &[redraw_event.clone()],
+                            slice::from_ref(&redraw_event),
                             cursor,
                             &mut window.renderer,
                             &mut clipboard,
                             &mut messages,
                         );
 
-                        let new_mouse_interaction = ui.draw(
+                        ui.draw(
                             &mut window.renderer,
                             window.state.theme(),
                             &renderer::Style {
@@ -772,10 +780,12 @@ async fn run_instance<P>(
                         if let user_interface::State::Updated {
                             redraw_request,
                             input_method,
+                            mouse_interaction,
                         } = ui_state
                         {
                             window.request_redraw(redraw_request);
                             window.request_input_method(input_method);
+                            window.update_mouse(mouse_interaction);
                         }
 
                         window.draw_preedit();
@@ -794,7 +804,7 @@ async fn run_instance<P>(
                             Err(error) => match error {
                                 // This is an unrecoverable error.
                                 compositor::SurfaceError::OutOfMemory => {
-                                    panic!("{:?}", error);
+                                    panic!("{error:?}");
                                 }
                                 _ => {
                                     present_span.finish();
@@ -929,8 +939,11 @@ async fn run_instance<P>(
                             match ui_state {
                                 user_interface::State::Updated {
                                     redraw_request: _redraw_request,
+                                    mouse_interaction,
                                     ..
                                 } => {
+                                    window.update_mouse(mouse_interaction);
+
                                     #[cfg(not(
                                         feature = "unconditional-rendering"
                                     ))]
@@ -1052,10 +1065,7 @@ fn update<P: Program, E: Executor>(
     P::Theme: theme::Base,
 {
     for message in messages.drain(..) {
-        let update_span = debug::update(&message);
         let task = runtime.enter(|| program.update(message));
-        debug::tasks_spawned(task.units());
-        update_span.finish();
 
         if let Some(stream) = runtime::task::into_stream(task) {
             runtime.run(stream);
@@ -1065,13 +1075,12 @@ fn update<P: Program, E: Executor>(
     let subscription = runtime.enter(|| program.subscription());
     let recipes = subscription::into_recipes(subscription.map(Action::Output));
 
-    debug::subscriptions_tracked(recipes.len());
     runtime.track(recipes);
 }
 
-fn run_action<P, C>(
+fn run_action<'a, P, C>(
     action: Action<P::Message>,
-    program: &program::Instance<P>,
+    program: &'a program::Instance<P>,
     compositor: &mut Option<C>,
     events: &mut Vec<(window::Id, core::Event)>,
     messages: &mut Vec<P::Message>,
@@ -1079,7 +1088,7 @@ fn run_action<P, C>(
     control_sender: &mut mpsc::UnboundedSender<Control>,
     interfaces: &mut FxHashMap<
         window::Id,
-        UserInterface<'_, P::Message, P::Theme, P::Renderer>,
+        UserInterface<'a, P::Message, P::Theme, P::Renderer>,
     >,
     window_manager: &mut WindowManager<P, C>,
     ui_caches: &mut FxHashMap<window::Id, user_interface::Cache>,
@@ -1344,8 +1353,8 @@ fn run_action<P, C>(
                 }
             }
             window::Action::ShowSystemMenu(id) => {
-                if let Some(window) = window_manager.get_mut(id) {
-                    if let mouse::Cursor::Available(point) =
+                if let Some(window) = window_manager.get_mut(id)
+                    && let mouse::Cursor::Available(point) =
                         window.state.cursor()
                     {
                         window.raw.show_window_menu(
@@ -1374,20 +1383,20 @@ fn run_action<P, C>(
                 }
             }
             window::Action::Screenshot(id, channel) => {
-                if let Some(window) = window_manager.get_mut(id) {
-                    if let Some(compositor) = compositor {
-                        let bytes = compositor.screenshot(
-                            &mut window.renderer,
-                            window.state.viewport(),
-                            window.state.background_color(),
-                        );
+                if let Some(window) = window_manager.get_mut(id)
+                    && let Some(compositor) = compositor
+                {
+                    let bytes = compositor.screenshot(
+                        &mut window.renderer,
+                        window.state.viewport(),
+                        window.state.background_color(),
+                    );
 
-                        let _ = channel.send(core::window::Screenshot::new(
-                            bytes,
-                            window.state.physical_size(),
-                            window.state.viewport().scale_factor(),
-                        ));
-                    }
+                    let _ = channel.send(core::window::Screenshot::new(
+                        bytes,
+                        window.state.physical_size(),
+                        window.state.viewport().scale_factor(),
+                    ));
                 }
             }
             window::Action::EnableMousePassthrough(id) => {
@@ -1443,6 +1452,29 @@ fn run_action<P, C>(
                 compositor.load_font(bytes.clone());
 
                 let _ = channel.send(Ok(()));
+            }
+        }
+        Action::Reload => {
+            for (id, window) in window_manager.iter_mut() {
+                let Some(ui) = interfaces.remove(&id) else {
+                    continue;
+                };
+
+                let cache = ui.into_cache();
+                let size = window.size();
+
+                let _ = interfaces.insert(
+                    id,
+                    build_user_interface(
+                        program,
+                        cache,
+                        &mut window.renderer,
+                        size,
+                        id,
+                    ),
+                );
+
+                window.raw.request_redraw();
             }
         }
         Action::Exit => {

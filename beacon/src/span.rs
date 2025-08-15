@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 pub enum Span {
     Boot,
     Update {
+        number: usize,
         message: String,
-        commands_spawned: usize,
+        tasks: usize,
+        subscriptions: usize,
     },
     View {
         window: window::Id,
@@ -21,60 +23,15 @@ pub enum Span {
     Draw {
         window: window::Id,
     },
-    Prepare {
-        window: window::Id,
-        primitive: Primitive,
-    },
-    Render {
-        window: window::Id,
-        primitive: Primitive,
-    },
     Present {
         window: window::Id,
+        prepare: present::Stage,
+        render: present::Stage,
+        layers: usize,
     },
     Custom {
-        window: window::Id,
         name: String,
     },
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
-pub enum Primitive {
-    Quad,
-    Triangle,
-    Shader,
-    Text,
-    Image,
-}
-
-impl Span {
-    pub fn stage(&self) -> Stage {
-        match self {
-            Span::Boot => Stage::Boot,
-            Span::Update { .. } => Stage::Update,
-            Span::View { window } => Stage::View(*window),
-            Span::Layout { window } => Stage::Layout(*window),
-            Span::Interact { window } => Stage::Interact(*window),
-            Span::Draw { window } => Stage::Draw(*window),
-            Span::Prepare { primitive, .. } => Stage::Prepare(*primitive),
-            Span::Render { primitive, .. } => Stage::Render(*primitive),
-            Span::Present { window } => Stage::Present(*window),
-            Span::Custom { window, name } => {
-                Stage::Custom(*window, name.clone())
-            }
-        }
-    }
 }
 
 #[derive(
@@ -88,9 +45,9 @@ pub enum Stage {
     Interact(window::Id),
     Draw(window::Id),
     Present(window::Id),
-    Prepare(Primitive),
-    Render(Primitive),
-    Custom(window::Id, String),
+    Prepare(present::Primitive),
+    Render(present::Primitive),
+    Custom(String),
 }
 
 impl std::fmt::Display for Stage {
@@ -105,7 +62,42 @@ impl std::fmt::Display for Stage {
             Stage::Prepare(_) => "Prepare",
             Stage::Render(_) => "Render",
             Stage::Present(_) => "Present",
-            Stage::Custom(_, name) => name,
+            Stage::Custom(name) => name,
         })
+    }
+}
+
+pub mod present {
+    use crate::core::time::Duration;
+
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    pub struct Stage {
+        pub quads: Duration,
+        pub triangles: Duration,
+        pub shaders: Duration,
+        pub text: Duration,
+        pub images: Duration,
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Serialize,
+        Deserialize,
+    )]
+    pub enum Primitive {
+        Quad,
+        Triangle,
+        Shader,
+        Text,
+        Image,
     }
 }
