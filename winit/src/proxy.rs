@@ -1,18 +1,23 @@
 use crate::futures::futures::{
-    Future, Sink, StreamExt,
+    Future, Sink, SinkExt, StreamExt,
     channel::mpsc,
     select,
     task::{Context, Poll},
 };
 use crate::runtime::Action;
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 
 /// An event loop proxy with backpressure that implements `Sink`.
 #[derive(Debug)]
 pub struct Proxy<T: 'static> {
-    raw: winit::event_loop::EventLoopProxy<Action<T>>,
+    raw: winit::event_loop::EventLoopProxy,
     sender: mpsc::Sender<Action<T>>,
     notifier: mpsc::Sender<usize>,
+    action_sender: mpsc::UnboundedSender<Action<T>>,
+    action_queue: Arc<Mutex<Vec<Action<T>>>>,
 }
 
 impl<T: 'static> Clone for Proxy<T> {
@@ -21,6 +26,8 @@ impl<T: 'static> Clone for Proxy<T> {
             raw: self.raw.clone(),
             sender: self.sender.clone(),
             notifier: self.notifier.clone(),
+            action_sender: self.action_sender.clone(),
+            action_queue: self.action_queue.clone(),
         }
     }
 }
@@ -30,11 +37,16 @@ impl<T: 'static> Proxy<T> {
 
     /// Creates a new [`Proxy`] from an `EventLoopProxy`.
     pub fn new(
-        raw: winit::event_loop::EventLoopProxy<Action<T>>,
-    ) -> (Self, impl Future<Output = ()>) {
+        raw: winit::event_loop::EventLoopProxy,
+    ) -> (Self, impl Future<Output = ()>, impl Future<Output = ()>) {
         let (notifier, mut processed) = mpsc::channel(Self::MAX_SIZE);
         let (sender, mut receiver) = mpsc::channel(Self::MAX_SIZE);
+        let (mut action_sender, mut action_receiver) = mpsc::unbounded();
+        let action_queue = Arc::new(Mutex::new(Vec::new()));
+
         let proxy = raw.clone();
+        let action_sender_clone = action_sender.clone();
+        let action_queue_clone = action_queue.clone();
 
         let worker = async move {
             let mut count = 0;
@@ -43,9 +55,8 @@ impl<T: 'static> Proxy<T> {
                 if count < Self::MAX_SIZE {
                     select! {
                         message = receiver.select_next_some() => {
-                            let _ = proxy.send_event(message);
+                            action_sender.send(message).await.expect("Failed to send message");
                             count += 1;
-
                         }
                         amount = processed.select_next_some() => {
                             count = count.saturating_sub(amount);
@@ -63,13 +74,25 @@ impl<T: 'static> Proxy<T> {
             }
         };
 
+        let action_worker = async move {
+            loop {
+                let action = action_receiver.select_next_some().await;
+                let mut queue = action_queue.lock().unwrap();
+                queue.push(action);
+                proxy.wake_up();
+            }
+        };
+
         (
             Self {
                 raw,
                 sender,
                 notifier,
+                action_sender: action_sender_clone,
+                action_queue: action_queue_clone,
             },
             worker,
+            action_worker,
         )
     }
 
@@ -92,13 +115,27 @@ impl<T: 'static> Proxy<T> {
     where
         T: std::fmt::Debug,
     {
-        let _ = self.raw.send_event(action);
+        self.action_sender
+            .start_send(action)
+            .expect("Failed to send action");
     }
 
     /// Frees an amount of slots for additional messages to be queued in
     /// this [`Proxy`].
     pub fn free_slots(&mut self, amount: usize) {
         let _ = self.notifier.start_send(amount);
+    }
+
+    /// Drains the action queue and returns all actions.
+    pub fn drain(&mut self) -> Vec<Action<T>> {
+        let mut queue = self.action_queue.lock().unwrap();
+        let mut actions = Vec::new();
+
+        while let Some(action) = queue.pop() {
+            actions.push(action);
+        }
+
+        actions
     }
 }
 

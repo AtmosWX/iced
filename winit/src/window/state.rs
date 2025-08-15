@@ -4,10 +4,11 @@ use crate::core::{mouse, theme, window};
 use crate::graphics::Viewport;
 use crate::program::{self, Program};
 
-use winit::event::{Touch, WindowEvent};
+use winit::event::WindowEvent;
 use winit::window::Window;
 
 use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 
 /// The state of a multi-windowed [`Program`].
 pub struct State<P: Program>
@@ -48,7 +49,7 @@ where
     pub fn new(
         program: &program::Instance<P>,
         window_id: window::Id,
-        window: &Window,
+        window: &Arc<Box<dyn Window>>,
     ) -> Self {
         let title = program.title(window_id);
         let scale_factor = program.scale_factor(window_id);
@@ -56,7 +57,7 @@ where
         let style = program.style(&theme);
 
         let viewport = {
-            let physical_size = window.inner_size();
+            let physical_size = window.surface_size();
 
             Viewport::with_physical_size(
                 Size::new(physical_size.width, physical_size.height),
@@ -137,9 +138,13 @@ where
     }
 
     /// Processes the provided window event and updates the [`State`] accordingly.
-    pub fn update(&mut self, window: &Window, event: &WindowEvent) {
+    pub fn update(
+        &mut self,
+        window: &Arc<Box<dyn Window>>,
+        event: &WindowEvent,
+    ) {
         match event {
-            WindowEvent::Resized(new_size) => {
+            WindowEvent::SurfaceResized(new_size) => {
                 let size = Size::new(new_size.width, new_size.height);
 
                 self.viewport = Viewport::with_physical_size(
@@ -162,13 +167,10 @@ where
 
                 self.viewport_version = self.viewport_version.wrapping_add(1);
             }
-            WindowEvent::CursorMoved { position, .. }
-            | WindowEvent::Touch(Touch {
-                location: position, ..
-            }) => {
+            WindowEvent::PointerMoved { position, .. } => {
                 self.cursor_position = Some(*position);
             }
-            WindowEvent::CursorLeft { .. } => {
+            WindowEvent::PointerLeft { .. } => {
                 self.cursor_position = None;
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {
@@ -187,7 +189,7 @@ where
         &mut self,
         program: &program::Instance<P>,
         window_id: window::Id,
-        window: &Window,
+        window: &Arc<Box<dyn Window>>,
     ) {
         // Update window title
         let new_title = program.title(window_id);
@@ -199,7 +201,7 @@ where
 
         // Update scale factor and size
         let new_scale_factor = program.scale_factor(window_id);
-        let new_size = window.inner_size();
+        let new_size = window.surface_size();
         let current_size = self.viewport.physical_size();
 
         if self.scale_factor != new_scale_factor
