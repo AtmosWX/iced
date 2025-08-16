@@ -82,7 +82,7 @@ where
     let graphics_settings = settings.clone().into();
     let event_loop = EventLoop::new().expect("Create event loop");
 
-    let (proxy, worker, action_worker) = Proxy::new(event_loop.create_proxy());
+    let (proxy, worker) = Proxy::new(event_loop.create_proxy());
 
     #[cfg(feature = "debug")]
     {
@@ -97,7 +97,6 @@ where
         let executor =
             P::Executor::new().map_err(Error::ExecutorCreationFailed)?;
         executor.spawn(worker);
-        executor.spawn(action_worker);
 
         Runtime::new(executor, proxy.clone())
     };
@@ -761,16 +760,6 @@ async fn run_instance<P>(
                         );
                         draw_span.finish();
 
-                        if new_mouse_interaction != window.mouse_interaction {
-                            window.raw.set_cursor(winit::window::Cursor::Icon(
-                                conversion::mouse_interaction(
-                                    new_mouse_interaction,
-                                ),
-                            ));
-
-                            window.mouse_interaction = new_mouse_interaction;
-                        }
-
                         runtime.broadcast(subscription::Event::Interaction {
                             window: id,
                             event: redraw_event,
@@ -1356,15 +1345,14 @@ fn run_action<'a, P, C>(
                 if let Some(window) = window_manager.get_mut(id)
                     && let mouse::Cursor::Available(point) =
                         window.state.cursor()
-                    {
-                        window.raw.show_window_menu(
-                            winit::dpi::LogicalPosition {
-                                x: point.x,
-                                y: point.y,
-                            }
-                            .into(),
-                        );
-                    }
+                {
+                    window.raw.show_window_menu(
+                        winit::dpi::LogicalPosition {
+                            x: point.x,
+                            y: point.y,
+                        }
+                        .into(),
+                    );
                 }
             }
             window::Action::GetRawId(id, channel) => {

@@ -440,36 +440,51 @@ pub fn mode(mode: Option<winit::monitor::Fullscreen>) -> window::Mode {
 /// [`winit`]: https://github.com/rust-windowing/winit
 pub fn mouse_interaction(
     interaction: mouse::Interaction,
-) -> winit::window::CursorIcon {
+) -> winit::window::Cursor {
     use mouse::Interaction;
+    use winit::window::CursorIcon;
 
     match interaction {
         Interaction::None | Interaction::Idle => {
-            winit::window::CursorIcon::Default
+            winit::window::Cursor::Icon(CursorIcon::Default)
         }
-        Interaction::Pointer => winit::window::CursorIcon::Pointer,
-        Interaction::Working => winit::window::CursorIcon::Progress,
-        Interaction::Grab => winit::window::CursorIcon::Grab,
-        Interaction::Grabbing => winit::window::CursorIcon::Grabbing,
-        Interaction::Crosshair => winit::window::CursorIcon::Crosshair,
-        Interaction::Text => winit::window::CursorIcon::Text,
+        Interaction::Pointer => {
+            winit::window::Cursor::Icon(CursorIcon::Pointer)
+        }
+        Interaction::Working => {
+            winit::window::Cursor::Icon(CursorIcon::Progress)
+        }
+        Interaction::Grab => winit::window::Cursor::Icon(CursorIcon::Grab),
+        Interaction::Grabbing => {
+            winit::window::Cursor::Icon(CursorIcon::Grabbing)
+        }
+        Interaction::Crosshair => {
+            winit::window::Cursor::Icon(CursorIcon::Crosshair)
+        }
+        Interaction::Text => winit::window::Cursor::Icon(CursorIcon::Text),
         Interaction::ResizingHorizontally => {
-            winit::window::CursorIcon::EwResize
+            winit::window::Cursor::Icon(CursorIcon::EwResize)
         }
-        Interaction::ResizingVertically => winit::window::CursorIcon::NsResize,
+        Interaction::ResizingVertically => {
+            winit::window::Cursor::Icon(CursorIcon::NsResize)
+        }
         Interaction::ResizingDiagonallyUp => {
-            winit::window::CursorIcon::NeswResize
+            winit::window::Cursor::Icon(CursorIcon::NeswResize)
         }
         Interaction::ResizingDiagonallyDown => {
-            winit::window::CursorIcon::NwseResize
+            winit::window::Cursor::Icon(CursorIcon::NwseResize)
         }
-        Interaction::NotAllowed => winit::window::CursorIcon::NotAllowed,
-        Interaction::ZoomIn => winit::window::CursorIcon::ZoomIn,
-        Interaction::ZoomOut => winit::window::CursorIcon::ZoomOut,
-        Interaction::Cell => winit::window::CursorIcon::Cell,
-        Interaction::Move => winit::window::CursorIcon::Move,
-        Interaction::Copy => winit::window::CursorIcon::Copy,
-        Interaction::Help => winit::window::CursorIcon::Help,
+        Interaction::NotAllowed => {
+            winit::window::Cursor::Icon(CursorIcon::NotAllowed)
+        }
+        Interaction::ZoomIn => winit::window::Cursor::Icon(CursorIcon::ZoomIn),
+        Interaction::ZoomOut => {
+            winit::window::Cursor::Icon(CursorIcon::ZoomOut)
+        }
+        Interaction::Cell => winit::window::Cursor::Icon(CursorIcon::Cell),
+        Interaction::Move => winit::window::Cursor::Icon(CursorIcon::Move),
+        Interaction::Copy => winit::window::Cursor::Icon(CursorIcon::Copy),
+        Interaction::Help => winit::window::Cursor::Icon(CursorIcon::Help),
     }
 }
 
