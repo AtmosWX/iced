@@ -176,6 +176,7 @@ impl Renderer {
         self.staging_belt.finish();
         let submission = self.engine.queue.submit([encoder.finish()]);
         self.staging_belt.recall();
+
         submission
     }
 
@@ -842,7 +843,6 @@ impl renderer::Headless for Renderer {
                 label: Some("iced_wgpu [headless]"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits {
-                    max_bind_groups: 2,
                     ..wgpu::Limits::default()
                 },
                 memory_hints: wgpu::MemoryHints::MemoryUsage,

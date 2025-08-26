@@ -214,6 +214,7 @@ web-time = "1.1"
 wgpu = "26.0"
 window_clipboard = "0.4.1"
 winit = { git = "https://github.com/AtmosWX/winit.git", branch = "macos-vsync" }
+# winit = { path = "/Users/rogue/opt/winit" }
 
 [workspace.lints.rust]
 rust_2018_idioms = { level = "deny", priority = -1 }
