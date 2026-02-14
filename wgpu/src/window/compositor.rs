@@ -151,6 +151,7 @@ impl Compositor {
         let limits = limits.into_iter().map(|limits| wgpu::Limits {
             max_bind_groups: 4,
             max_non_sampler_bindings: 2048,
+            max_texture_dimension_2d: 16384,
             ..limits
         });
 

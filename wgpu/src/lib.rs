@@ -899,6 +899,7 @@ impl renderer::Headless for Renderer {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits {
                     max_bind_groups: 4,
+                    max_texture_dimension_2d: 16384,
                     ..wgpu::Limits::default()
                 },
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
