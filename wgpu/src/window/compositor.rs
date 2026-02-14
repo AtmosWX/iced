@@ -154,7 +154,7 @@ impl Compositor {
             [wgpu::Limits::default(), wgpu::Limits::downlevel_defaults()];
 
         let limits = limits.into_iter().map(|limits| wgpu::Limits {
-            max_bind_groups: 2,
+            max_bind_groups: 4,
             ..limits
         });
 
