@@ -59,6 +59,7 @@ mod content;
 mod controls;
 mod direction;
 mod draggable;
+mod indicator;
 mod node;
 mod pane;
 mod split;
@@ -72,6 +73,7 @@ pub use content::Content;
 pub use controls::Controls;
 pub use direction::Direction;
 pub use draggable::Draggable;
+
 pub use node::Node;
 pub use pane::Pane;
 pub use split::Split;
@@ -91,6 +93,8 @@ use crate::core::{
     self, Background, Border, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle,
     Shell, Size, Theme, Vector, Widget,
 };
+
+use indicator::Indicator;
 
 const DRAG_DEADBAND_DISTANCE: f32 = 10.0;
 const THICKNESS_RATIO: f32 = 25.0;
@@ -339,6 +343,7 @@ where
 struct Memory {
     action: state::Action,
     order: Vec<Pane>,
+    drop_indicator: Option<Indicator>,
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -471,7 +476,11 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let Memory { action, .. } = tree.state.downcast_mut();
+        let Memory {
+            action,
+            drop_indicator,
+            ..
+        } = tree.state.downcast_mut();
         let node = self.internal.layout();
 
         let on_drag = if self.drag_enabled() {
@@ -481,6 +490,14 @@ where
         };
 
         let picked_pane = action.picked_pane().map(|(pane, _)| pane);
+
+        let pane_in_edge = if picked_pane.is_some() {
+            cursor
+                .position()
+                .and_then(|cursor_position| in_edge(layout, cursor_position))
+        } else {
+            None
+        };
 
         for (((pane, content), tree), layout) in self
             .panes
@@ -500,6 +517,40 @@ where
             content.update(
                 tree, event, layout, cursor, renderer, shell, viewport, is_picked,
             );
+
+            if pane_in_edge.is_some() {
+                continue;
+            }
+
+            let Some(region) = cursor
+                .position()
+                .and_then(|cursor_position| layout_region(layout, cursor_position))
+            else {
+                continue;
+            };
+
+            if is_picked {
+                *drop_indicator = None;
+                continue;
+            }
+
+            let bounds = layout_region_bounds(layout, region);
+            *drop_indicator = Some(Indicator {
+                size: bounds.size(),
+                position: bounds.position(),
+            });
+        }
+
+        if let Some(edge) = pane_in_edge {
+            let bounds = edge_bounds(layout, edge);
+            *drop_indicator = Some(Indicator {
+                size: bounds.size(),
+                position: bounds.position(),
+            });
+        }
+
+        if pane_in_edge.is_none() && picked_pane.is_none() {
+            *drop_indicator = None;
         }
 
         match event {
@@ -766,14 +817,6 @@ where
 
         let mut render_picked_pane = None;
 
-        let pane_in_edge = if picked_pane.is_some() {
-            cursor
-                .position()
-                .and_then(|cursor_position| in_edge(layout, cursor_position))
-        } else {
-            None
-        };
-
         let style = Catalog::style(theme, &self.class);
 
         for (((id, content), tree), pane_layout) in self
@@ -793,35 +836,6 @@ where
                 Some((dragging, origin)) if id == dragging => {
                     render_picked_pane = Some(((content, tree), origin, pane_layout));
                 }
-                Some((dragging, _)) if id != dragging => {
-                    content.draw(
-                        tree,
-                        renderer,
-                        theme,
-                        defaults,
-                        pane_layout,
-                        pane_cursor,
-                        viewport,
-                    );
-
-                    if picked_pane.is_some()
-                        && pane_in_edge.is_none()
-                        && let Some(region) = cursor
-                            .position()
-                            .and_then(|cursor_position| layout_region(pane_layout, cursor_position))
-                    {
-                        let bounds = layout_region_bounds(pane_layout, region);
-
-                        renderer.fill_quad(
-                            renderer::Quad {
-                                bounds,
-                                border: style.hovered_region.border,
-                                ..renderer::Quad::default()
-                            },
-                            style.hovered_region.background,
-                        );
-                    }
-                }
                 _ => {
                     content.draw(
                         tree,
@@ -834,19 +848,6 @@ where
                     );
                 }
             }
-        }
-
-        if let Some(edge) = pane_in_edge {
-            let bounds = edge_bounds(layout, edge);
-
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds,
-                    border: style.hovered_region.border,
-                    ..renderer::Quad::default()
-                },
-                style.hovered_region.background,
-            );
         }
 
         // Render picked pane last
@@ -914,7 +915,9 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        let children = self
+        let Memory { drop_indicator, .. } = tree.state.downcast_ref();
+
+        let mut children = self
             .panes
             .iter()
             .copied()
@@ -933,6 +936,10 @@ where
                 content.overlay(state, layout, renderer, viewport, translation)
             })
             .collect::<Vec<_>>();
+
+        if let Some(overlay) = drop_indicator.clone() {
+            children.push(overlay::Element::new(Box::new(overlay)));
+        }
 
         (!children.is_empty()).then(|| Group::with_children(children).overlay())
     }
