@@ -149,8 +149,9 @@ impl Compositor {
         let limits = [wgpu::Limits::default(), wgpu::Limits::downlevel_defaults()];
 
         let limits = limits.into_iter().map(|limits| wgpu::Limits {
-            max_bind_groups: 2,
+            max_bind_groups: 4,
             max_non_sampler_bindings: 2048,
+            max_texture_dimension_2d: 16384,
             ..limits
         });
 
@@ -318,7 +319,7 @@ impl graphics::Compositor for Compositor {
                 height,
                 alpha_mode: self.alpha_mode,
                 view_formats: vec![],
-                desired_maximum_frame_latency: 1,
+                desired_maximum_frame_latency: 2,
             },
         );
     }
