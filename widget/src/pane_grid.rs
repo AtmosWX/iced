@@ -892,6 +892,9 @@ where
         let picked_pane = state.action.picked_pane();
         let Memory { drop_indicator, .. } = tree.state.downcast_ref();
 
+        let mut idx = 0;
+        let mut picked_pane_idx = None;
+
         let mut children = self
             .panes
             .iter()
@@ -911,6 +914,7 @@ where
                 if let Some((picked_pane, origin)) = picked_pane
                     && picked_pane == pane
                 {
+                    picked_pane_idx = Some(idx);
                     return Some(overlay::Element::new(Box::new(PickedPane {
                         origin,
                         content,
@@ -919,12 +923,21 @@ where
                     })));
                 }
 
-                content.overlay(tree, layout, renderer, viewport, translation)
+                let overlay = content.overlay(tree, layout, renderer, viewport, translation);
+
+                if overlay.is_some() {
+                    idx += 1;
+                }
+
+                overlay
             })
             .collect::<Vec<_>>();
 
         if let Some(overlay) = drop_indicator.clone() {
-            children.push(overlay::Element::new(Box::new(overlay)));
+            children.insert(
+                picked_pane_idx.unwrap_or(children.len()),
+                overlay::Element::new(Box::new(overlay)),
+            );
         }
 
         (!children.is_empty()).then(|| Group::with_children(children).overlay())
