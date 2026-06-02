@@ -31,6 +31,7 @@ pub mod conversion;
 
 mod error;
 mod proxy;
+mod vsync;
 mod window;
 
 pub use clipboard::Clipboard;
@@ -631,6 +632,7 @@ async fn run_instance<P>(
                     id,
                     window,
                     &program,
+                    &proxy,
                     compositor.as_mut().expect("Compositor must be initialized"),
                     renderer_settings,
                     exit_on_close_request,
@@ -684,31 +686,6 @@ async fn run_instance<P>(
             }
             Event::EventLoopAwakened(event) => {
                 match event {
-                    event::Event::NewEvents(event::StartCause::Init) => {
-                        for (_id, window) in window_manager.iter_mut() {
-                            window.raw.request_redraw();
-                        }
-                    }
-                    event::Event::NewEvents(event::StartCause::ResumeTimeReached { .. }) => {
-                        let now = Instant::now();
-
-                        for (_id, window) in window_manager.iter_mut() {
-                            if let Some(redraw_at) = window.redraw_at
-                                && redraw_at <= now
-                            {
-                                window.raw.request_redraw();
-                                window.redraw_at = None;
-                            }
-                        }
-
-                        if let Some(redraw_at) = window_manager.redraw_at() {
-                            let _ = control_sender
-                                .start_send(Control::ChangeFlow(ControlFlow::WaitUntil(redraw_at)));
-                        } else {
-                            let _ =
-                                control_sender.start_send(Control::ChangeFlow(ControlFlow::Wait));
-                        }
-                    }
                     event::Event::PlatformSpecific(event::PlatformSpecific::MacOS(
                         event::MacOS::ReceivedUrl(url),
                     )) => {
@@ -854,15 +831,6 @@ async fn run_instance<P>(
                                     );
                                 }
 
-                                for (window_id, window) in window_manager.iter_mut() {
-                                    // We are already redrawing this window
-                                    if window_id == id {
-                                        continue;
-                                    }
-
-                                    window.raw.request_redraw();
-                                }
-
                                 let Some(next_compositor) = compositor.as_mut() else {
                                     continue 'next_event;
                                 };
@@ -906,14 +874,12 @@ async fn run_instance<P>(
                         draw_span.finish();
 
                         if let user_interface::State::Updated {
-                            redraw_request,
                             input_method,
                             mouse_interaction,
                             clipboard: clipboard_requests,
                             ..
                         } = state
                         {
-                            window.request_redraw(redraw_request);
                             window.request_input_method(input_method);
                             window.update_mouse(mouse_interaction);
 
@@ -964,18 +930,11 @@ async fn run_instance<P>(
                                             physical_size.height,
                                         );
                                     }
-
-                                    window.raw.request_redraw();
                                 }
                                 _ => {
                                     present_span.finish();
 
                                     log::error!("Error {error:?} when presenting surface.");
-
-                                    // Try rendering all windows again next frame.
-                                    for (_id, window) in window_manager.iter_mut() {
-                                        window.raw.request_redraw();
-                                    }
                                 }
                             },
                         }
@@ -1001,9 +960,6 @@ async fn run_instance<P>(
                         };
 
                         match window_event {
-                            winit::event::WindowEvent::Resized(_) => {
-                                window.raw.request_redraw();
-                            }
                             winit::event::WindowEvent::ThemeChanged(theme) => {
                                 let mode = conversion::theme_mode(theme);
 
@@ -1087,9 +1043,6 @@ async fn run_instance<P>(
                                     &mut messages,
                                 );
 
-                            #[cfg(feature = "unconditional-rendering")]
-                            window.request_redraw(window::RedrawRequest::NextFrame);
-
                             match ui_state {
                                 user_interface::State::Updated {
                                     redraw_request: _redraw_request,
@@ -1098,9 +1051,6 @@ async fn run_instance<P>(
                                     ..
                                 } => {
                                     window.update_mouse(mouse_interaction);
-
-                                    #[cfg(not(feature = "unconditional-rendering"))]
-                                    window.request_redraw(_redraw_request);
 
                                     run_clipboard(
                                         &mut proxy,
@@ -1167,10 +1117,6 @@ async fn run_instance<P>(
                                     &mut system_theme,
                                     &mut renderer_settings,
                                 );
-                            }
-
-                            for (_id, window) in window_manager.iter_mut() {
-                                window.raw.request_redraw();
                             }
                         }
 
@@ -1591,8 +1537,6 @@ fn run_action<'a, P, C>(
                             ui.relayout(window.state.logical_size(), &mut window.renderer),
                         );
                     }
-
-                    window.raw.request_redraw();
                 }
             }
         },
@@ -1666,8 +1610,6 @@ fn run_action<'a, P, C>(
                     let size = window.state.logical_size();
                     let ui = ui.relayout(size, &mut window.renderer);
                     let _ = interfaces.insert(id, ui);
-
-                    window.raw.request_redraw();
                 }
             }
         },
@@ -1688,11 +1630,6 @@ fn run_action<'a, P, C>(
                         current_operation = Some(next);
                     }
                 }
-            }
-
-            // Redraw all windows
-            for (_, window) in window_manager.iter_mut() {
-                window.raw.request_redraw();
             }
         }
         Action::Image(action) => match action {
@@ -1726,8 +1663,6 @@ fn run_action<'a, P, C>(
                     id,
                     build_user_interface(program, cache, &mut window.renderer, size, id),
                 );
-
-                window.raw.request_redraw();
             }
         }
         Action::Exit => {
