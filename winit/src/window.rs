@@ -70,6 +70,8 @@ where
 
         #[cfg(target_os = "macos")]
         vsync::macos::setup_vsync::<P>(&window, proxy);
+        #[cfg(target_os = "windows")]
+        vsync::windows::setup_vsync::<P>(&window, proxy);
 
         let _ = self.entries.insert(
             id,
