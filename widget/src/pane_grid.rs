@@ -767,8 +767,6 @@ where
         let resize_leeway = self.on_resize.as_ref().map(|(leeway, _)| *leeway);
 
         let picked_pane = action.picked_pane();
-        let dragged_pane = picked_pane
-            .filter(|(_, origin)| is_dragging(*origin, cursor.position().unwrap_or_default()));
 
         let picked_split = action
             .picked_split()

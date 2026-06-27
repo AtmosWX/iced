@@ -2482,6 +2482,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "objc2-quartz-core 0.3.2",
+ "rustc-hash 2.1.2",
  "sysinfo",
  "thiserror 2.0.18",
  "tracing",

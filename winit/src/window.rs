@@ -18,8 +18,6 @@ use crate::core::time::Instant;
 use crate::core::{Color, InputMethod, Padding, Point, Rectangle, Size, Text, Vector};
 use crate::graphics::Compositor;
 use crate::program::{self, Program};
-use crate::proxy;
-use crate::runtime::window::raw_window_handle;
 use crate::vsync;
 
 use winit::dpi::{LogicalPosition, LogicalSize};
@@ -56,9 +54,8 @@ where
         id: Id,
         window: Arc<winit::window::Window>,
         program: &program::Instance<P>,
-        proxy: &proxy::Proxy<P::Message>,
-        compositor: &mut C,
         proxy: Proxy<P::Message>,
+        compositor: &mut C,
         renderer_settings: renderer::Settings,
         exit_on_close_request: bool,
         system_theme: theme::Mode,
@@ -70,6 +67,11 @@ where
             compositor.create_surface(window.clone(), surface_size.width, surface_size.height);
         let renderer = compositor.create_renderer(renderer_settings);
 
+        #[cfg(target_os = "macos")]
+        vsync::macos::setup_vsync::<P>(&window, &proxy);
+        #[cfg(target_os = "windows")]
+        vsync::windows::setup_vsync::<P>(&window, &proxy);
+
         let waker = shell::Waker::new(move || {
             proxy.send_action(iced_runtime::Action::Event {
                 window: id,
@@ -78,11 +80,6 @@ where
         });
 
         let _ = self.aliases.insert(window.id(), id);
-
-        #[cfg(target_os = "macos")]
-        vsync::macos::setup_vsync::<P>(&window, proxy);
-        #[cfg(target_os = "windows")]
-        vsync::windows::setup_vsync::<P>(&window, proxy);
 
         let _ = self.entries.insert(
             id,
