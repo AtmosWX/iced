@@ -18,6 +18,9 @@ use crate::core::time::Instant;
 use crate::core::{Color, InputMethod, Padding, Point, Rectangle, Size, Text, Vector};
 use crate::graphics::Compositor;
 use crate::program::{self, Program};
+use crate::proxy;
+use crate::runtime::window::raw_window_handle;
+use crate::vsync;
 
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::monitor::MonitorHandle;
@@ -53,6 +56,7 @@ where
         id: Id,
         window: Arc<winit::window::Window>,
         program: &program::Instance<P>,
+        proxy: &proxy::Proxy<P::Message>,
         compositor: &mut C,
         proxy: Proxy<P::Message>,
         renderer_settings: renderer::Settings,
@@ -74,6 +78,11 @@ where
         });
 
         let _ = self.aliases.insert(window.id(), id);
+
+        #[cfg(target_os = "macos")]
+        vsync::macos::setup_vsync::<P>(&window, proxy);
+        #[cfg(target_os = "windows")]
+        vsync::windows::setup_vsync::<P>(&window, proxy);
 
         let _ = self.entries.insert(
             id,
@@ -208,7 +217,7 @@ where
     pub fn request_redraw(&mut self, redraw_request: RedrawRequest) {
         match redraw_request {
             RedrawRequest::NextFrame => {
-                self.raw.request_redraw();
+                // self.raw.request_redraw();
                 self.redraw_at = None;
             }
             RedrawRequest::At(at) => {

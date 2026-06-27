@@ -14,7 +14,7 @@ pub struct Compositor {
     format: wgpu::TextureFormat,
     alpha_mode: wgpu::CompositeAlphaMode,
     engine: Engine,
-    settings: Settings,
+    present_mode: wgpu::PresentMode,
 }
 
 /// A compositor error.
@@ -101,7 +101,7 @@ impl Compositor {
 
         log::info!("Selected: {:#?}", adapter.get_info());
 
-        let (format, alpha_mode) = compatible_surface
+        let ((format, alpha_mode), present_mode) = compatible_surface
             .as_ref()
             .and_then(|surface| {
                 let capabilities = surface.get_capabilities(&adapter);
@@ -143,7 +143,16 @@ impl Compositor {
                         wgpu::CompositeAlphaMode::Auto
                     };
 
-                format.zip(Some(preferred_alpha))
+                let present_mode = if capabilities
+                    .present_modes
+                    .contains(&wgpu::PresentMode::Mailbox)
+                {
+                    wgpu::PresentMode::Mailbox
+                } else {
+                    wgpu::PresentMode::Fifo
+                };
+
+                format.zip(Some(preferred_alpha)).zip(Some(present_mode))
             })
             .ok_or(Error::IncompatibleSurface)?;
 
@@ -159,7 +168,7 @@ impl Compositor {
         ];
 
         let limits = limits.into_iter().map(|limits| wgpu::Limits {
-            max_bind_groups: 2,
+            max_bind_groups: 4,
             max_non_sampler_bindings: 2048,
             ..limits
         });
@@ -202,7 +211,7 @@ impl Compositor {
                         format,
                         alpha_mode,
                         engine,
-                        settings,
+                        present_mode,
                     });
                 }
                 Err(error) => {
@@ -322,12 +331,12 @@ impl graphics::Compositor for Compositor {
             &wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format: self.format,
-                present_mode: self.settings.present_mode,
+                present_mode: self.present_mode,
                 width,
                 height,
                 alpha_mode: self.alpha_mode,
                 view_formats: vec![],
-                desired_maximum_frame_latency: 1,
+                desired_maximum_frame_latency: 2,
             },
         );
     }

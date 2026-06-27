@@ -52,4 +52,15 @@ mundy.optional = true
 
 # Delete once we update to `winit 0.31`
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = { version = "0.5", features = ["relax-sign-encoding"] }
+objc2 = { version = "0.6.2", features = ["relax-sign-encoding"] }
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-quartz-core = "0.3.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+] }
