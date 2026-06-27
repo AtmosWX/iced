@@ -4,11 +4,14 @@ use state::State;
 
 pub use crate::core::window::{Event, Id, RedrawRequest, Settings};
 
+use crate::Proxy;
 use crate::conversion;
+use crate::core;
 use crate::core::alignment;
 use crate::core::input_method;
 use crate::core::mouse;
 use crate::core::renderer;
+use crate::core::shell;
 use crate::core::text;
 use crate::core::theme;
 use crate::core::time::Instant;
@@ -25,7 +28,7 @@ use winit::monitor::MonitorHandle;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub struct WindowManager<P, C>
+pub struct Manager<P, C>
 where
     P: Program,
     C: Compositor<Renderer = P::Renderer>,
@@ -35,7 +38,7 @@ where
     entries: BTreeMap<Id, Window<P, C>>,
 }
 
-impl<P, C> WindowManager<P, C>
+impl<P, C> Manager<P, C>
 where
     P: Program,
     C: Compositor<Renderer = P::Renderer>,
@@ -55,6 +58,7 @@ where
         program: &program::Instance<P>,
         proxy: &proxy::Proxy<P::Message>,
         compositor: &mut C,
+        proxy: Proxy<P::Message>,
         renderer_settings: renderer::Settings,
         exit_on_close_request: bool,
         system_theme: theme::Mode,
@@ -65,6 +69,13 @@ where
         let surface =
             compositor.create_surface(window.clone(), surface_size.width, surface_size.height);
         let renderer = compositor.create_renderer(renderer_settings);
+
+        let waker = shell::Waker::new(move || {
+            proxy.send_action(iced_runtime::Action::Event {
+                window: id,
+                event: core::Event::Waken,
+            });
+        });
 
         let _ = self.aliases.insert(window.id(), id);
 
@@ -77,6 +88,7 @@ where
             id,
             Window {
                 raw: window,
+                waker,
                 state,
                 exit_on_close_request,
                 surface,
@@ -146,9 +158,16 @@ where
 
         Some(window)
     }
+
+    pub fn replace_with(&mut self, mut f: impl FnMut(Window<P, C>) -> Window<P, C>) {
+        self.entries = std::mem::take(&mut self.entries)
+            .into_iter()
+            .map(|(id, window)| (id, f(window)))
+            .collect();
+    }
 }
 
-impl<P, C> Default for WindowManager<P, C>
+impl<P, C> Default for Manager<P, C>
 where
     P: Program,
     C: Compositor<Renderer = P::Renderer>,
@@ -166,6 +185,7 @@ where
     P::Theme: theme::Base,
 {
     pub raw: Arc<winit::window::Window>,
+    pub waker: shell::Waker,
     pub state: State<P>,
     pub exit_on_close_request: bool,
     pub mouse_interaction: mouse::Interaction,
@@ -291,30 +311,6 @@ where
         }
 
         self.preedit = None;
-    }
-}
-
-impl<P, C> raw_window_handle::HasWindowHandle for Window<P, C>
-where
-    P: Program,
-    C: Compositor<Renderer = P::Renderer>,
-{
-    fn window_handle(
-        &self,
-    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        self.raw.window_handle()
-    }
-}
-
-impl<P, C> raw_window_handle::HasDisplayHandle for Window<P, C>
-where
-    P: Program,
-    C: Compositor<Renderer = P::Renderer>,
-{
-    fn display_handle(
-        &self,
-    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        self.raw.display_handle()
     }
 }
 

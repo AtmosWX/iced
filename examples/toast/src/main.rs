@@ -301,13 +301,7 @@ mod toast {
             widget::tree::State::new(Vec::<Option<Instant>>::new())
         }
 
-        fn children(&self) -> Vec<Tree> {
-            std::iter::once(Tree::new(&self.content))
-                .chain(self.toasts.iter().map(Tree::new))
-                .collect()
-        }
-
-        fn diff(&self, tree: &mut Tree) {
+        fn diff(&mut self, tree: &mut Tree) {
             let instants = tree.state.downcast_mut::<Vec<Option<Instant>>>();
 
             // Invalidating removed instants to None allows us to remove
@@ -326,8 +320,8 @@ mod toast {
             }
 
             tree.diff_children(
-                &std::iter::once(&self.content)
-                    .chain(self.toasts.iter())
+                &mut std::iter::once(&mut self.content)
+                    .chain(&mut self.toasts)
                     .collect::<Vec<_>>(),
             );
         }
@@ -512,7 +506,7 @@ mod toast {
                 .zip(self.instants.iter_mut())
             {
                 let mut local_messages = vec![];
-                let mut local_shell = Shell::new(&mut local_messages);
+                let mut local_shell = shell.local(&mut local_messages);
 
                 child.as_widget_mut().update(
                     state,

@@ -360,11 +360,7 @@ where
         tree::State::new(Memory::default())
     }
 
-    fn children(&self) -> Vec<Tree> {
-        self.contents.iter().map(Content::state).collect()
-    }
-
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         let Memory { order, .. } = tree.state.downcast_ref();
 
         // `Pane` always increments and is iterated by Ord so new
@@ -387,7 +383,7 @@ where
         });
 
         tree.diff_children_custom(
-            &self.contents,
+            &mut self.contents,
             |state, content| content.diff(state),
             Content::state,
         );
@@ -770,13 +766,9 @@ where
         let node = self.internal.layout();
         let resize_leeway = self.on_resize.as_ref().map(|(leeway, _)| *leeway);
 
-        let picked_pane = action.picked_pane().filter(|(_, origin)| {
-            cursor
-                .position()
-                .map(|position| position.distance(*origin))
-                .unwrap_or_default()
-                > DRAG_DEADBAND_DISTANCE
-        });
+        let picked_pane = action.picked_pane();
+        let dragged_pane = picked_pane
+            .filter(|(_, origin)| is_dragging(*origin, cursor.position().unwrap_or_default()));
 
         let picked_split = action
             .picked_split()
@@ -974,8 +966,13 @@ where
         _layout: Layout<'_>,
         cursor: mouse::Cursor,
     ) {
-        let translation =
-            cursor.position().unwrap_or_default() - Point::new(self.origin.x, self.origin.y);
+        let cursor_position = cursor.position().unwrap_or_default();
+
+        let translation = if is_dragging(self.origin, cursor_position) {
+            cursor_position - self.origin
+        } else {
+            Vector::ZERO
+        };
 
         renderer.with_translation(translation, |renderer| {
             self.content.draw(
@@ -989,6 +986,10 @@ where
             );
         });
     }
+}
+
+fn is_dragging(origin: Point, cursor: Point) -> bool {
+    cursor.distance(origin) > DRAG_DEADBAND_DISTANCE
 }
 
 impl<'a, Message, Theme, Renderer> From<PaneGrid<'a, Message, Theme, Renderer>>
