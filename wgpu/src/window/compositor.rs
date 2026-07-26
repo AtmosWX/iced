@@ -170,6 +170,7 @@ impl Compositor {
         let limits = limits.into_iter().map(|limits| wgpu::Limits {
             max_bind_groups: 4,
             max_non_sampler_bindings: 2048,
+            max_immediate_size: 128,
             ..limits
         });
 
@@ -179,6 +180,8 @@ impl Compositor {
         } else {
             wgpu::Features::empty()
         };
+
+        let required_features = required_features | wgpu::Features::IMMEDIATES;
 
         let mut errors = Vec::new();
 
