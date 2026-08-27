@@ -1228,7 +1228,7 @@ where
 fn run_action<'a, P, C>(
     action: Action<P::Message>,
     program: &'a program::Instance<P>,
-    _proxy: &Proxy<P::Message>,
+    proxy: &Proxy<P::Message>,
     runtime: &mut Runtime<P::Executor, Proxy<P::Message>, Action<P::Message>>,
     compositor: &mut Option<C>,
     events: &mut Vec<(window::Id, core::Event)>,
@@ -1542,6 +1542,7 @@ fn run_action<'a, P, C>(
                 for (_id, window) in window_manager.iter_mut() {
                     window.raw.request_redraw();
                 }
+                proxy.redraw_consumed();
             }
             window::Action::RelayoutAll => {
                 for (id, window) in window_manager.iter_mut() {
@@ -1659,7 +1660,7 @@ fn run_action<'a, P, C>(
         Action::Backend(action) => match action {
             #[cfg(not(target_arch = "wasm32"))]
             backend::Action::Configure(settings, sender) => {
-                let shell = Shell::new(_proxy.clone());
+                let shell = Shell::new(proxy.clone());
 
                 let mut new_compositor = if let Some(window) = window_manager.first() {
                     match runtime.block_on(C::new(

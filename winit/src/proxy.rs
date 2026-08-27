@@ -7,7 +7,13 @@ use crate::futures::futures::{
 use crate::graphics::shell;
 use crate::runtime::Action;
 use crate::runtime::window;
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 /// An event loop proxy with backpressure that implements `Sink`.
 #[derive(Debug)]
@@ -15,6 +21,7 @@ pub struct Proxy<T: 'static> {
     raw: winit::event_loop::EventLoopProxy<Action<T>>,
     sender: mpsc::Sender<Action<T>>,
     notifier: mpsc::Sender<usize>,
+    redraw_queued: Arc<AtomicBool>,
 }
 
 impl<T: 'static> Clone for Proxy<T> {
@@ -23,6 +30,7 @@ impl<T: 'static> Clone for Proxy<T> {
             raw: self.raw.clone(),
             sender: self.sender.clone(),
             notifier: self.notifier.clone(),
+            redraw_queued: self.redraw_queued.clone(),
         }
     }
 }
@@ -69,6 +77,7 @@ impl<T: 'static> Proxy<T> {
                 raw,
                 sender,
                 notifier,
+                redraw_queued: Arc::new(AtomicBool::new(false)),
             },
             worker,
         )
@@ -99,6 +108,11 @@ impl<T: 'static> Proxy<T> {
     /// this [`Proxy`].
     pub fn free_slots(&mut self, amount: usize) {
         let _ = self.notifier.start_send(amount);
+    }
+
+    /// Resets the redraw queued flag.
+    pub fn redraw_consumed(&self) {
+        self.redraw_queued.store(false, Ordering::Relaxed);
     }
 }
 
@@ -141,7 +155,9 @@ where
     }
 
     fn request_redraw(&self) {
-        self.send_action(Action::Window(window::Action::RedrawAll));
+        if !self.redraw_queued.swap(true, Ordering::Relaxed) {
+            self.send_action(Action::Window(window::Action::RedrawAll));
+        }
     }
 
     fn invalidate_layout(&self) {
