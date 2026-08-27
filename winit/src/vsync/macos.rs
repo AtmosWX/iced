@@ -30,7 +30,7 @@ where
 
         let target = LinkTarget::new::<P>(proxy);
         let link = ns_view.displayLinkWithTarget_selector(&target, sel!(vblank:));
-        link.setPreferredFrameRateRange(CAFrameRateRange::new(60.0, 180.0, 180.0));
+        link.setPreferredFrameRateRange(CAFrameRateRange::new(60.0, 1000.0, 1000.0));
 
         let raw_link = Retained::into_raw(link);
         let addr = raw_link as usize;
