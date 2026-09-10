@@ -219,6 +219,13 @@ where
         let is_over = cursor.is_over(layout.bounds());
         let end = self.children.len() - 1;
 
+        // Whether the event arrived already captured — by a sibling earlier in
+        // the pass, not by anything in here. Without this the loop below stops
+        // on its first turn and every layer under the top one is skipped, so a
+        // focused widget beneath an overlay never sees the click that should
+        // blur it.
+        let was_captured = shell.is_event_captured();
+
         for (i, ((child, tree), layout)) in self
             .children
             .iter_mut()
@@ -231,7 +238,7 @@ where
                 .as_widget_mut()
                 .update(tree, event, layout, cursor, renderer, shell, viewport);
 
-            if shell.is_event_captured() {
+            if !was_captured && shell.is_event_captured() {
                 return;
             }
 
